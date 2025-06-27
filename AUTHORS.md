@@ -2,6 +2,7 @@
 
 The list of contributors to the Reana JupyterLab Extension in alphabetical order:
 
-- Enrique Garcia
-- Rubén Pérez
-- Tomas Ondrejka
+- Enrique Garcia (CERN)
+- Giovanni Guerrieri (CERN)
+- Rubén Pérez (CERN)
+- Tomas Ondrejka (CERN)
