@@ -1,0 +1,62 @@
+sequenceDiagram
+    participant User       as User
+    participant Browser    as Web Browser
+    participant Hub        as JupyterHub
+    participant Proxy      as JupyterHub Proxy
+    participant IdP        as ESCAPE SSO (IdP) iam-escape.cloud.cnaf.infn.it
+    participant JLab       as JupyterLab Pod
+    participant Ext        as REANA JupyterLab Extension
+    participant RServer    as REANA Server
+    participant DB         as REANA Database
+    participant K8s        as Kubernetes Cluster
+
+%% ── Login to JupyterLab ─────────────────────────────────────────────
+    User    ->> Browser : Press "Sign in with OAuth 2.0"
+
+    Browser ->> Hub     : GET /oauth_login
+    Hub     ->> Browser : 302 Redirect → ESCAPE SSO: /authorize?<PARAMS>
+
+    Browser ->> IdP     : GET /authorize?<PARAMS> (OIDC request)
+    IdP     ->> Browser : 302 Redirect → ESCAPE SSO: /login
+
+    Browser ->> IdP     : GET /login
+%% ── ^^^^^^ Where is the connection between session and return url? JSESSIONID is specific to login session? How does the sso known where to return?
+    IdP     ->> Browser : ESCAPE HTML Login Form
+
+    Browser ->> User     : Display Login Form
+    User    ->> Browser  : Enter credentials and submit
+%% ── I am here ─────────────────────────────────────────────
+%% Now the user gets redirected multiple times somehow, go through this now!
+    Browser ->> Hub     : /oauth_callback?code=…
+    Hub     ->> IdP     : Exchange code for tokens
+    IdP     ->> Hub     : ID & Access tokens
+    Hub     ->> Hub     : Validate tokens & identify user
+    Hub     ->> K8s     : Spawn JupyterLab pod (namespace+PVC)
+    K8s     ->> Hub     : Pod ready
+    Hub     ->> Proxy   : Register route /user/{user}/
+    Hub     ->> Browser : 302 → /user/{user}/lab
+    Browser ->> Proxy   : GET /user/{user}/lab (with session cookie)
+    Proxy   ->> JLab    : Forward request
+    JLab    ->> Proxy   : JupyterLab UI HTML/JS
+    Proxy   ->> Browser : Serve JupyterLab UI
+
+%% ── REANA extension initialisation ─────────────────────────────────
+    User    ->> Ext     : Enter REANA URL + token
+    Ext     ->> Ext     : Store token (localStorage)
+    Ext     ->> RServer : GET /api/workflows (Bearer token)
+    RServer ->> DB      : Validate token
+    DB      ->> RServer : User record
+    RServer ->> Ext     : Workflow list
+    RServer -->> Ext    : 401 Unauthorized %% if token invalid
+
+%% ── Launch workflow ────────────────────────────────────────────────
+    User    ->> Ext     : Create workflow
+    Ext     ->> RServer : POST /api/workflows
+    RServer ->> DB      : Authorise action
+    RServer ->> K8s     : Create workflow jobs
+    K8s     ->> RServer : Jobs running
+    RServer ->> Ext     : Workflow ID & status
+    Ext     ->> RServer : Poll status/logs
+    RServer ->> Ext     : Current status
+
+%% Session persists until logout/expiry
